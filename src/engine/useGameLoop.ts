@@ -6,6 +6,8 @@ import {
   useSharedValue,
 } from "react-native-reanimated";
 
+const MAX_DELTA_SECONDS = 1 / 30;
+
 export function useGameLoop(onTick: (dt: number) => void) {
   const previousTimestamp = useSharedValue(0);
 
@@ -17,7 +19,10 @@ export function useGameLoop(onTick: (dt: number) => void) {
       return;
     }
 
-    const dt = (frameInfo.timestamp - previousTimestamp.value) / 1000;
+    const dt = Math.min(
+      (frameInfo.timestamp - previousTimestamp.value) / 1000,
+      MAX_DELTA_SECONDS,
+    );
     previousTimestamp.value = frameInfo.timestamp;
     runOnJS(onTick)(dt);
   }, true);

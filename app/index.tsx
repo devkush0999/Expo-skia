@@ -1,4 +1,5 @@
 import GameCanvas from "@/src/components/GameCanvas";
+import { config } from "@/src/constants/config";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
@@ -12,10 +13,10 @@ export default function GameScreen() {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.scoreBar}>
+      <GameCanvas onScore={handleScore} />
+      <View pointerEvents="none" style={styles.scoreBar}>
         <Text style={styles.scoreText}>Score: {score}</Text>
       </View>
-      <GameCanvas onScore={handleScore} />
       <StatusBar style="light" translucent={false} />
     </View>
   );
@@ -24,15 +25,16 @@ export default function GameScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#87CEEB",
+    backgroundColor: config.BACKGROUND_COLOR,
   },
   scoreBar: {
+    left: 0,
     paddingTop: 48,
     paddingBottom: 12,
     paddingHorizontal: 16,
-    backgroundColor: "rgba(255,255,255,0.18)",
-    borderBottomColor: "rgba(255,255,255,0.35)",
-    borderBottomWidth: 1,
+    position: "absolute",
+    right: 0,
+    top: 0,
   },
   scoreText: {
     fontSize: 24,

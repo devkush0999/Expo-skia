@@ -1,4 +1,4 @@
-import { Circle } from "@shopify/react-native-skia";
+import { Circle, Group } from "@shopify/react-native-skia";
 
 type BulletProps = {
   x: number;
@@ -7,5 +7,10 @@ type BulletProps = {
 };
 
 export default function Bullet({ x, y, radius }: BulletProps) {
-  return <Circle cx={x} cy={y} r={radius} color="#FFFFFF" />;
+  return (
+    <Group>
+      <Circle cx={x} cy={y} r={radius + 2} color="#082D54" />
+      <Circle cx={x} cy={y} r={radius} color="#FFFFFF" />
+    </Group>
+  );
 }

@@ -2,8 +2,10 @@ import { config } from "@/src/constants/config";
 import { isCircleColliding } from "@/src/engine/collision";
 import { useGameLoop } from "@/src/engine/useGameLoop";
 import { Canvas, Rect } from "@shopify/react-native-skia";
-import React, { useCallback, useRef, useState } from "react";
-import { GestureResponderEvent, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import React, { useCallback, useMemo, useRef, useState } from "react";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { LayoutChangeEvent, StyleSheet, View } from "react-native";
+import { runOnJS } from "react-native-reanimated";
 import Balloon from "./Balloon";
 import Bullet from "./Bullet";
 import Gun from "./Gun";
@@ -35,53 +37,65 @@ type SceneState = {
   bullets: BulletModel[];
 };
 
+type CanvasSize = {
+  width: number;
+  height: number;
+};
+
 const randomBetween = (min: number, max: number) =>
   min + Math.random() * (max - min);
+
 const chooseColor = () =>
   config.BALLOON_COLORS[
     Math.floor(Math.random() * config.BALLOON_COLORS.length)
   ];
 
-export default function GameCanvas({ onScore }: GameCanvasProps) {
-  const { width, height } = useWindowDimensions();
-  const [scene, setScene] = useState<SceneState>({ balloons: [], bullets: [] });
-  const spawnTimer = useRef(0);
-  const [gunAngle, setGunAngle] = useState(-Math.PI / 2);
+const createId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random()}`;
 
+export default function GameCanvas({ onScore }: GameCanvasProps) {
+  const [size, setSize] = useState<CanvasSize>({ width: 0, height: 0 });
+  const [scene, setScene] = useState<SceneState>({ balloons: [], bullets: [] });
+  const [gunAngle, setGunAngle] = useState(-Math.PI / 2);
+  const spawnTimer = useRef(0);
+
+  const { width, height } = size;
   const gunX = width / 2;
   const gunY = height - config.GUN_BASE_OFFSET;
 
-  const spawnBalloon = useCallback(() => {
-    if (!width || !height) {
-      return;
+  const createBalloon = useCallback((): BalloonModel | null => {
+    if (width <= 0 || height <= 0) {
+      return null;
     }
 
     const radius = randomBetween(
       config.BALLOON_RADIUS_MIN,
       config.BALLOON_RADIUS_MAX,
     );
-    const x = randomBetween(radius, width - radius);
-    const y = height + radius;
-    const speed = randomBetween(
-      config.BALLOON_SPEED_MIN,
-      config.BALLOON_SPEED_MAX,
-    );
 
-    const balloon: BalloonModel = {
-      id: `balloon-${Date.now()}-${Math.random()}`,
-      x,
-      y,
+    return {
+      id: createId("balloon"),
+      x: randomBetween(radius, width - radius),
+      y: height + radius,
       radius,
-      speed,
+      speed: randomBetween(config.BALLOON_SPEED_MIN, config.BALLOON_SPEED_MAX),
       color: chooseColor(),
     };
-
-    setScene((prev) => ({ ...prev, balloons: [...prev.balloons, balloon] }));
   }, [height, width]);
+
+  const handleLayout = useCallback((event: LayoutChangeEvent) => {
+    const { width: nextWidth, height: nextHeight } = event.nativeEvent.layout;
+    setSize((current) => {
+      if (current.width === nextWidth && current.height === nextHeight) {
+        return current;
+      }
+
+      return { width: nextWidth, height: nextHeight };
+    });
+  }, []);
 
   const shootBullet = useCallback(
     (targetX: number, targetY: number) => {
-      if (!width || !height) {
+      if (width <= 0 || height <= 0) {
         return;
       }
 
@@ -89,22 +103,25 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
       setGunAngle(angle);
 
       const bullet: BulletModel = {
-        id: `bullet-${Date.now()}-${Math.random()}`,
+        id: createId("bullet"),
         x: gunX,
-        y: gunY - config.GUN_HEIGHT * 0.25,
+        y: gunY - config.GUN_HEIGHT * 0.55,
         radius: config.BULLET_RADIUS,
         dx: Math.cos(angle) * config.BULLET_SPEED,
         dy: Math.sin(angle) * config.BULLET_SPEED,
       };
 
-      setScene((prev) => ({ ...prev, bullets: [...prev.bullets, bullet] }));
+      setScene((current) => ({
+        ...current,
+        bullets: [...current.bullets, bullet],
+      }));
     },
     [gunX, gunY, height, width],
   );
 
   const updateScene = useCallback(
     (dt: number) => {
-      if (!width || !height) {
+      if (width <= 0 || height <= 0) {
         return;
       }
 
@@ -114,15 +131,15 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
         spawnTimer.current -= config.BALLOON_SPAWN_INTERVAL;
       }
 
-      setScene((prev) => {
-        const movedBalloons = prev.balloons
+      setScene((current) => {
+        const movedBalloons = current.balloons
           .map((balloon) => ({
             ...balloon,
             y: balloon.y - balloon.speed * dt,
           }))
           .filter((balloon) => balloon.y + balloon.radius > 0);
 
-        const movedBullets = prev.bullets
+        const movedBullets = current.bullets
           .map((bullet) => ({
             ...bullet,
             x: bullet.x + bullet.dx * dt,
@@ -136,14 +153,19 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
               bullet.y <= height + bullet.radius,
           );
 
-        const hitBalloonIds = new Set<string>();
-        const hitBulletIds = new Set<string>();
+        const poppedBalloonIds = new Set<string>();
+        const spentBulletIds = new Set<string>();
 
         for (const balloon of movedBalloons) {
           for (const bullet of movedBullets) {
             if (
-              !hitBalloonIds.has(balloon.id) &&
-              !hitBulletIds.has(bullet.id) &&
+              poppedBalloonIds.has(balloon.id) ||
+              spentBulletIds.has(bullet.id)
+            ) {
+              continue;
+            }
+
+            if (
               isCircleColliding(
                 balloon.x,
                 balloon.y,
@@ -153,100 +175,83 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
                 bullet.radius,
               )
             ) {
-              hitBalloonIds.add(balloon.id);
-              hitBulletIds.add(bullet.id);
+              poppedBalloonIds.add(balloon.id);
+              spentBulletIds.add(bullet.id);
             }
           }
         }
 
-        const filteredBalloons = movedBalloons.filter(
-          (balloon) => !hitBalloonIds.has(balloon.id),
-        );
-        const filteredBullets = movedBullets.filter(
-          (bullet) => !hitBulletIds.has(bullet.id),
-        );
-
-        if (hitBalloonIds.size > 0) {
-          onScore(hitBalloonIds.size);
+        if (poppedBalloonIds.size > 0) {
+          onScore(poppedBalloonIds.size);
         }
 
-        const updatedScene: SceneState = {
-          balloons: filteredBalloons,
-          bullets: filteredBullets,
+        const nextScene: SceneState = {
+          balloons: movedBalloons.filter(
+            (balloon) => !poppedBalloonIds.has(balloon.id),
+          ),
+          bullets: movedBullets.filter(
+            (bullet) => !spentBulletIds.has(bullet.id),
+          ),
         };
 
-        if (shouldSpawn && updatedScene.balloons.length < config.MAX_BALLOONS) {
-          const radius = randomBetween(
-            config.BALLOON_RADIUS_MIN,
-            config.BALLOON_RADIUS_MAX,
-          );
-          const x = randomBetween(radius, width - radius);
-          const y = height + radius;
-          const speed = randomBetween(
-            config.BALLOON_SPEED_MIN,
-            config.BALLOON_SPEED_MAX,
-          );
-
-          updatedScene.balloons = [
-            ...updatedScene.balloons,
-            {
-              id: `balloon-${Date.now()}-${Math.random()}`,
-              x,
-              y,
-              radius,
-              speed,
-              color: chooseColor(),
-            },
-          ];
+        if (shouldSpawn && nextScene.balloons.length < config.MAX_BALLOONS) {
+          const balloon = createBalloon();
+          if (balloon) {
+            nextScene.balloons = [...nextScene.balloons, balloon];
+          }
         }
 
-        return updatedScene;
+        return nextScene;
       });
     },
-    [height, onScore, width],
+    [createBalloon, height, onScore, width],
   );
 
   useGameLoop(updateScene);
 
-  const handlePress = useCallback(
-    (event: GestureResponderEvent) => {
-      const { locationX, locationY } = event.nativeEvent;
-      shootBullet(locationX, locationY);
-    },
+  const tapGesture = useMemo(
+    () =>
+      Gesture.Tap().onStart((event) => {
+        runOnJS(shootBullet)(event.x, event.y);
+      }),
     [shootBullet],
   );
 
   return (
-    <View style={styles.container}>
-      <Pressable style={styles.canvasContainer} onPress={handlePress}>
-        <Canvas style={styles.canvas}>
-          <Rect
-            x={0}
-            y={0}
-            width={width}
-            height={height}
-            color={config.BACKGROUND_COLOR}
-          />
-          {scene.balloons.map((balloon) => (
-            <Balloon
-              key={balloon.id}
-              x={balloon.x}
-              y={balloon.y}
-              radius={balloon.radius}
-              color={balloon.color}
+    <View style={styles.container} onLayout={handleLayout}>
+      <GestureDetector gesture={tapGesture}>
+        <View style={styles.canvasContainer}>
+          <Canvas style={styles.canvas}>
+            <Rect
+              x={0}
+              y={0}
+              width={width}
+              height={height}
+              color={config.BACKGROUND_COLOR}
             />
-          ))}
-          {scene.bullets.map((bullet) => (
-            <Bullet
-              key={bullet.id}
-              x={bullet.x}
-              y={bullet.y}
-              radius={bullet.radius}
-            />
-          ))}
-          <Gun x={gunX} y={gunY} angle={gunAngle} />
-        </Canvas>
-      </Pressable>
+            {scene.balloons.map((balloon) => (
+              <Balloon
+                key={balloon.id}
+                x={balloon.x}
+                y={balloon.y}
+                radius={balloon.radius}
+                color={balloon.color}
+              />
+            ))}
+            {scene.bullets.map((bullet) => (
+              <Bullet
+                key={bullet.id}
+                x={bullet.x}
+                y={bullet.y}
+                radius={bullet.radius}
+              />
+            ))}
+            {width > 0 && height > 0 ? (
+              <Gun x={gunX} y={gunY} angle={gunAngle} />
+            ) : null}
+          </Canvas>
+        </View>
+      </GestureDetector>
     </View>
   );
 }
