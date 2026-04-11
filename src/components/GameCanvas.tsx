@@ -4,7 +4,7 @@ import { useGameLoop } from "@/src/engine/useGameLoop";
 import { Canvas, Rect } from "@shopify/react-native-skia";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { LayoutChangeEvent, StyleSheet, View } from "react-native";
+import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from "react-native";
 import { runOnJS } from "react-native-reanimated";
 import Balloon from "./Balloon";
 import Bullet from "./Bullet";
@@ -30,6 +30,7 @@ type BulletModel = {
   dx: number;
   dy: number;
   radius: number;
+  color: string;
 };
 
 type SceneState = {
@@ -56,6 +57,9 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
   const [size, setSize] = useState<CanvasSize>({ width: 0, height: 0 });
   const [scene, setScene] = useState<SceneState>({ balloons: [], bullets: [] });
   const [gunAngle, setGunAngle] = useState(-Math.PI / 2);
+  const [selectedBulletColor, setSelectedBulletColor] = useState(
+    config.BULLET_COLORS[0],
+  );
   const spawnTimer = useRef(0);
 
   const { width, height } = size;
@@ -75,7 +79,7 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
     return {
       id: createId("balloon"),
       x: randomBetween(radius, width - radius),
-      y: height + radius,
+      y: -radius,
       radius,
       speed: randomBetween(config.BALLOON_SPEED_MIN, config.BALLOON_SPEED_MAX),
       color: chooseColor(),
@@ -109,6 +113,7 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
         radius: config.BULLET_RADIUS,
         dx: Math.cos(angle) * config.BULLET_SPEED,
         dy: Math.sin(angle) * config.BULLET_SPEED,
+        color: selectedBulletColor,
       };
 
       setScene((current) => ({
@@ -116,7 +121,7 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
         bullets: [...current.bullets, bullet],
       }));
     },
-    [gunX, gunY, height, width],
+    [gunX, gunY, height, selectedBulletColor, width],
   );
 
   const updateScene = useCallback(
@@ -135,9 +140,9 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
         const movedBalloons = current.balloons
           .map((balloon) => ({
             ...balloon,
-            y: balloon.y - balloon.speed * dt,
+            y: balloon.y + balloon.speed * dt,
           }))
-          .filter((balloon) => balloon.y + balloon.radius > 0);
+          .filter((balloon) => balloon.y - balloon.radius < height);
 
         const movedBullets = current.bullets
           .map((bullet) => ({
@@ -166,6 +171,7 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
             }
 
             if (
+              balloon.color === bullet.color &&
               isCircleColliding(
                 balloon.x,
                 balloon.y,
@@ -244,6 +250,7 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
                 x={bullet.x}
                 y={bullet.y}
                 radius={bullet.radius}
+                color={bullet.color}
               />
             ))}
             {width > 0 && height > 0 ? (
@@ -252,6 +259,24 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
           </Canvas>
         </View>
       </GestureDetector>
+      <View style={styles.colorPicker}>
+        <Text style={styles.colorPickerLabel}>Bullet</Text>
+        {config.BULLET_COLORS.map((color) => {
+          const isSelected = color === selectedBulletColor;
+
+          return (
+            <Pressable
+              key={color}
+              onPress={() => setSelectedBulletColor(color)}
+              style={[
+                styles.colorButton,
+                { backgroundColor: color },
+                isSelected ? styles.selectedColorButton : null,
+              ]}
+            />
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -265,5 +290,33 @@ const styles = StyleSheet.create({
   },
   canvas: {
     flex: 1,
+  },
+  colorPicker: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.4)",
+    borderRadius: 8,
+    bottom: 96,
+    flexDirection: "row",
+    gap: 10,
+    left: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    position: "absolute",
+  },
+  colorPickerLabel: {
+    color: "#082D54",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  colorButton: {
+    borderColor: "rgba(8,45,84,0.35)",
+    borderRadius: 8,
+    borderWidth: 2,
+    height: 34,
+    width: 34,
+  },
+  selectedColorButton: {
+    borderColor: "#082D54",
+    borderWidth: 4,
   },
 });
