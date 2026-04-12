@@ -14,12 +14,14 @@ import { runOnJS } from "react-native-reanimated";
 import Balloon from "./Balloon";
 import Bullet from "./Bullet";
 import Gun from "./Gun";
+import PopEffect from "./PopEffect";
 
 type GameCanvasProps = {
   isGameOver: boolean;
   isPaused: boolean;
   onLevelComplete: () => void;
   onMiss: (misses: number) => void;
+  onPop: () => void;
   onScore: (points: number) => void;
   onSpawnedChange: (spawned: number) => void;
 };
@@ -46,6 +48,16 @@ type BulletModel = {
 type SceneState = {
   balloons: BalloonModel[];
   bullets: BulletModel[];
+  pops: PopEffectModel[];
+};
+
+type PopEffectModel = {
+  id: string;
+  age: number;
+  color: string;
+  radius: number;
+  x: number;
+  y: number;
 };
 
 type CanvasSize = {
@@ -61,6 +73,12 @@ const chooseColor = () =>
     Math.floor(Math.random() * config.BALLOON_COLORS.length)
   ];
 
+const initialScene: SceneState = {
+  balloons: [],
+  bullets: [],
+  pops: [],
+};
+
 const createId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random()}`;
 
 export default function GameCanvas({
@@ -68,13 +86,15 @@ export default function GameCanvas({
   isPaused,
   onLevelComplete,
   onMiss,
+  onPop,
   onScore,
   onSpawnedChange,
 }: GameCanvasProps) {
   const [size, setSize] = useState<CanvasSize>({ width: 0, height: 0 });
-  const [scene, setScene] = useState<SceneState>({ balloons: [], bullets: [] });
+  const [scene, setScene] = useState<SceneState>(initialScene);
   const [gunAngle, setGunAngle] = useState(-Math.PI / 2);
   const [selectedBulletIndex, setSelectedBulletIndex] = useState(0);
+  const sceneRef = useRef<SceneState>(initialScene);
   const spawnTimer = useRef(0);
   const spawnedCount = useRef(0);
   const levelComplete = useRef(false);
@@ -143,10 +163,12 @@ export default function GameCanvas({
         color: selectedBulletColor,
       };
 
-      setScene((current) => ({
-        ...current,
-        bullets: [...current.bullets, bullet],
-      }));
+      const nextScene = {
+        ...sceneRef.current,
+        bullets: [...sceneRef.current.bullets, bullet],
+      };
+      sceneRef.current = nextScene;
+      setScene(nextScene);
     },
     [gunX, gunY, height, isGameOver, isPaused, selectedBulletColor, width],
   );
@@ -165,98 +187,124 @@ export default function GameCanvas({
         spawnTimer.current -= config.BALLOON_SPAWN_INTERVAL;
       }
 
-      setScene((current) => {
-        const movedBalloons = current.balloons.map((balloon) => ({
-          ...balloon,
-          y: balloon.y + balloon.speed * dt,
-        }));
-        const missedCount = movedBalloons.filter(
-          (balloon) => balloon.y - balloon.radius >= height,
-        ).length;
-        const activeBalloons = movedBalloons.filter(
-          (balloon) => balloon.y - balloon.radius < height,
+      const current = sceneRef.current;
+      const movedBalloons = current.balloons.map((balloon) => ({
+        ...balloon,
+        y: balloon.y + balloon.speed * dt,
+      }));
+      const missedCount = movedBalloons.filter(
+        (balloon) => balloon.y - balloon.radius >= height,
+      ).length;
+      const activeBalloons = movedBalloons.filter(
+        (balloon) => balloon.y - balloon.radius < height,
+      );
+
+      const movedBullets = current.bullets
+        .map((bullet) => ({
+          ...bullet,
+          x: bullet.x + bullet.dx * dt,
+          y: bullet.y + bullet.dy * dt,
+        }))
+        .filter(
+          (bullet) =>
+            bullet.x >= -bullet.radius &&
+            bullet.x <= width + bullet.radius &&
+            bullet.y >= -bullet.radius &&
+            bullet.y <= height + bullet.radius,
         );
 
-        const movedBullets = current.bullets
-          .map((bullet) => ({
-            ...bullet,
-            x: bullet.x + bullet.dx * dt,
-            y: bullet.y + bullet.dy * dt,
-          }))
-          .filter(
-            (bullet) =>
-              bullet.x >= -bullet.radius &&
-              bullet.x <= width + bullet.radius &&
-              bullet.y >= -bullet.radius &&
-              bullet.y <= height + bullet.radius,
-          );
+      const poppedBalloonIds = new Set<string>();
+      const spentBulletIds = new Set<string>();
 
-        const poppedBalloonIds = new Set<string>();
-        const spentBulletIds = new Set<string>();
+      for (const balloon of activeBalloons) {
+        for (const bullet of movedBullets) {
+          if (
+            poppedBalloonIds.has(balloon.id) ||
+            spentBulletIds.has(bullet.id)
+          ) {
+            continue;
+          }
 
-        for (const balloon of activeBalloons) {
-          for (const bullet of movedBullets) {
-            if (
-              poppedBalloonIds.has(balloon.id) ||
-              spentBulletIds.has(bullet.id)
-            ) {
-              continue;
-            }
-
-            if (
-              balloon.color === bullet.color &&
-              isCircleColliding(
-                balloon.x,
-                balloon.y,
-                balloon.radius,
-                bullet.x,
-                bullet.y,
-                bullet.radius,
-              )
-            ) {
-              poppedBalloonIds.add(balloon.id);
-              spentBulletIds.add(bullet.id);
-            }
+          if (
+            balloon.color === bullet.color &&
+            isCircleColliding(
+              balloon.x,
+              balloon.y,
+              balloon.radius,
+              bullet.x,
+              bullet.y,
+              bullet.radius,
+            )
+          ) {
+            poppedBalloonIds.add(balloon.id);
+            spentBulletIds.add(bullet.id);
           }
         }
+      }
 
-        if (missedCount > 0) {
-          onMiss(missedCount);
+      const nextScene: SceneState = {
+        balloons: activeBalloons.filter(
+          (balloon) => !poppedBalloonIds.has(balloon.id),
+        ),
+        bullets: movedBullets.filter(
+          (bullet) => !spentBulletIds.has(bullet.id),
+        ),
+        pops: [
+          ...current.pops
+            .map((pop) => ({ ...pop, age: pop.age + dt }))
+            .filter((pop) => pop.age < config.POP_EFFECT_DURATION),
+          ...activeBalloons
+            .filter((balloon) => poppedBalloonIds.has(balloon.id))
+            .map((balloon) => ({
+              id: createId("pop"),
+              age: 0,
+              color: balloon.color,
+              radius: balloon.radius,
+              x: balloon.x,
+              y: balloon.y,
+            })),
+        ],
+      };
+      let spawnedChanged = false;
+
+      if (shouldSpawn && nextScene.balloons.length < config.MAX_BALLOONS) {
+        const balloon = createBalloon();
+        if (balloon) {
+          nextScene.balloons = [...nextScene.balloons, balloon];
+          spawnedCount.current += 1;
+          spawnedChanged = true;
         }
+      }
 
-        if (poppedBalloonIds.size > 0) {
-          onScore(poppedBalloonIds.size);
-        }
+      const spawned = spawnedCount.current;
+      const didLevelComplete =
+        spawned >= config.LEVEL_ONE_BALLOONS &&
+        nextScene.balloons.length === 0 &&
+        !levelComplete.current;
 
-        const nextScene: SceneState = {
-          balloons: activeBalloons.filter(
-            (balloon) => !poppedBalloonIds.has(balloon.id),
-          ),
-          bullets: movedBullets.filter(
-            (bullet) => !spentBulletIds.has(bullet.id),
-          ),
-        };
+      if (didLevelComplete) {
+        levelComplete.current = true;
+      }
 
-        if (shouldSpawn && nextScene.balloons.length < config.MAX_BALLOONS) {
-          const balloon = createBalloon();
-          if (balloon) {
-            nextScene.balloons = [...nextScene.balloons, balloon];
-            spawnedCount.current += 1;
-            onSpawnedChange(spawnedCount.current);
-          }
-        }
+      sceneRef.current = nextScene;
+      setScene(nextScene);
 
-        if (
-          spawnedCount.current >= config.LEVEL_ONE_BALLOONS &&
-          nextScene.balloons.length === 0 &&
-          !levelComplete.current
-        ) {
-          levelComplete.current = true;
-          onLevelComplete();
-        }
+      if (missedCount > 0) {
+        onMiss(missedCount);
+      }
 
-        return nextScene;
-      });
+      if (poppedBalloonIds.size > 0) {
+        onPop();
+        onScore(poppedBalloonIds.size);
+      }
+
+      if (spawnedChanged) {
+        onSpawnedChange(spawned);
+      }
+
+      if (didLevelComplete) {
+        onLevelComplete();
+      }
     },
     [
       createBalloon,
@@ -265,6 +313,7 @@ export default function GameCanvas({
       isPaused,
       onLevelComplete,
       onMiss,
+      onPop,
       onScore,
       onSpawnedChange,
       width,
@@ -323,6 +372,16 @@ export default function GameCanvas({
                 y={bullet.y}
                 radius={bullet.radius}
                 color={bullet.color}
+              />
+            ))}
+            {scene.pops.map((pop) => (
+              <PopEffect
+                key={pop.id}
+                color={pop.color}
+                progress={pop.age / config.POP_EFFECT_DURATION}
+                radius={pop.radius}
+                x={pop.x}
+                y={pop.y}
               />
             ))}
             {width > 0 && height > 0 ? (

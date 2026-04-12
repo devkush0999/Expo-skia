@@ -1,11 +1,47 @@
 import GameCanvas from "@/src/components/GameCanvas";
 import { config } from "@/src/constants/config";
+import { loadBestScore, saveBestScore } from "@/src/utils/localScore";
+import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+
+type AudioWindow = typeof globalThis & {
+  AudioContext?: typeof AudioContext;
+  webkitAudioContext?: typeof AudioContext;
+};
+
+function playPopSound() {
+  const audioGlobal = globalThis as AudioWindow;
+  const AudioContextConstructor =
+    audioGlobal.AudioContext ?? audioGlobal.webkitAudioContext;
+
+  if (!AudioContextConstructor) {
+    return;
+  }
+
+  const audioContext = new AudioContextConstructor();
+  const oscillator = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+
+  oscillator.type = "triangle";
+  oscillator.frequency.setValueAtTime(620, audioContext.currentTime);
+  oscillator.frequency.exponentialRampToValueAtTime(
+    220,
+    audioContext.currentTime + 0.08,
+  );
+  gain.gain.setValueAtTime(0.05, audioContext.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.1);
+
+  oscillator.connect(gain);
+  gain.connect(audioContext.destination);
+  oscillator.start();
+  oscillator.stop(audioContext.currentTime + 0.1);
+}
 
 export default function GameScreen() {
   const [score, setScore] = useState(0);
+  const [bestScore, setBestScore] = useState(0);
   const [missed, setMissed] = useState(0);
   const [spawned, setSpawned] = useState(0);
   const [gameStatus, setGameStatus] = useState<"playing" | "lost" | "won">(
@@ -17,8 +53,21 @@ export default function GameScreen() {
   const isGameOver = gameStatus !== "playing";
   const canPause = !isGameOver;
 
+  useEffect(() => {
+    setBestScore(loadBestScore());
+  }, []);
+
   const handleScore = useCallback((points: number) => {
-    setScore((current) => current + points);
+    setScore((current) => {
+      const nextScore = current + points;
+      setBestScore(saveBestScore(nextScore));
+      return nextScore;
+    });
+  }, []);
+
+  const handlePop = useCallback(() => {
+    playPopSound();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
   }, []);
 
   const handleMiss = useCallback((misses: number) => {
@@ -60,6 +109,7 @@ export default function GameScreen() {
         isPaused={isPaused}
         onLevelComplete={handleLevelComplete}
         onMiss={handleMiss}
+        onPop={handlePop}
         onScore={handleScore}
         onSpawnedChange={setSpawned}
       />
@@ -74,7 +124,7 @@ export default function GameScreen() {
       </View>
       <View pointerEvents="none" style={styles.levelBar}>
         <Text style={styles.levelText}>
-          Level 1: {spawned}/{config.LEVEL_ONE_BALLOONS}
+          Best: {bestScore} | Level 1: {spawned}/{config.LEVEL_ONE_BALLOONS}
         </Text>
       </View>
       {canPause ? (
