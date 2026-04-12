@@ -1,6 +1,8 @@
 const BEST_SCORE_KEY = "balloon-shooter-best-score";
+const UNLOCKED_LEVEL_KEY = "balloon-shooter-unlocked-level";
 
 let memoryBestScore = 0;
+let memoryUnlockedLevel = 1;
 
 function getStorage() {
   try {
@@ -38,4 +40,26 @@ export function saveBestScore(score: number) {
   }
 
   return memoryBestScore;
+}
+
+export function loadUnlockedLevel() {
+  const storedLevel = getStorage()?.getItem(UNLOCKED_LEVEL_KEY);
+  const parsedLevel = storedLevel ? Number(storedLevel) : memoryUnlockedLevel;
+
+  if (Number.isFinite(parsedLevel)) {
+    memoryUnlockedLevel = Math.max(1, Math.trunc(parsedLevel));
+  }
+
+  return memoryUnlockedLevel;
+}
+
+export function saveUnlockedLevel(level: number) {
+  memoryUnlockedLevel = Math.max(memoryUnlockedLevel, Math.trunc(level) || 1);
+  try {
+    getStorage()?.setItem(UNLOCKED_LEVEL_KEY, String(memoryUnlockedLevel));
+  } catch {
+    return memoryUnlockedLevel;
+  }
+
+  return memoryUnlockedLevel;
 }

@@ -1,4 +1,5 @@
 import { config } from "@/src/constants/config";
+import type { LevelConfig } from "@/src/constants/levels";
 import { isCircleColliding } from "@/src/engine/collision";
 import { useGameLoop } from "@/src/engine/useGameLoop";
 import { Canvas, Rect } from "@shopify/react-native-skia";
@@ -19,6 +20,7 @@ import PopEffect from "./PopEffect";
 type GameCanvasProps = {
   isGameOver: boolean;
   isPaused: boolean;
+  levelConfig: LevelConfig;
   onLevelComplete: () => void;
   onMiss: (misses: number) => void;
   onPop: () => void;
@@ -84,6 +86,7 @@ const createId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random()}`;
 export default function GameCanvas({
   isGameOver,
   isPaused,
+  levelConfig,
   onLevelComplete,
   onMiss,
   onPop,
@@ -128,10 +131,13 @@ export default function GameCanvas({
       x: randomBetween(radius, width - radius),
       y: -radius,
       radius,
-      speed: randomBetween(config.BALLOON_SPEED_MIN, config.BALLOON_SPEED_MAX),
+      speed: randomBetween(
+        levelConfig.balloonSpeedMin,
+        levelConfig.balloonSpeedMax,
+      ),
       color: chooseColor(),
     };
-  }, [height, width]);
+  }, [height, levelConfig.balloonSpeedMax, levelConfig.balloonSpeedMin, width]);
 
   const handleLayout = useCallback((event: LayoutChangeEvent) => {
     const { width: nextWidth, height: nextHeight } = event.nativeEvent.layout;
@@ -180,11 +186,11 @@ export default function GameCanvas({
       }
 
       spawnTimer.current += dt;
-      const canSpawn = spawnedCount.current < config.LEVEL_ONE_BALLOONS;
+      const canSpawn = spawnedCount.current < levelConfig.totalBalloons;
       const shouldSpawn =
-        canSpawn && spawnTimer.current >= config.BALLOON_SPAWN_INTERVAL;
+        canSpawn && spawnTimer.current >= levelConfig.spawnInterval;
       if (shouldSpawn) {
-        spawnTimer.current -= config.BALLOON_SPAWN_INTERVAL;
+        spawnTimer.current -= levelConfig.spawnInterval;
       }
 
       const current = sceneRef.current;
@@ -267,7 +273,7 @@ export default function GameCanvas({
       };
       let spawnedChanged = false;
 
-      if (shouldSpawn && nextScene.balloons.length < config.MAX_BALLOONS) {
+      if (shouldSpawn && nextScene.balloons.length < levelConfig.maxBalloons) {
         const balloon = createBalloon();
         if (balloon) {
           nextScene.balloons = [...nextScene.balloons, balloon];
@@ -278,7 +284,7 @@ export default function GameCanvas({
 
       const spawned = spawnedCount.current;
       const didLevelComplete =
-        spawned >= config.LEVEL_ONE_BALLOONS &&
+        spawned >= levelConfig.totalBalloons &&
         nextScene.balloons.length === 0 &&
         !levelComplete.current;
 
@@ -311,6 +317,9 @@ export default function GameCanvas({
       height,
       isGameOver,
       isPaused,
+      levelConfig.maxBalloons,
+      levelConfig.spawnInterval,
+      levelConfig.totalBalloons,
       onLevelComplete,
       onMiss,
       onPop,

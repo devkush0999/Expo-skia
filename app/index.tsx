@@ -23,7 +23,9 @@ export default function HomeScreen() {
 
       <View style={styles.cards}>
         <Pressable
-          onPress={() => router.push("/game")}
+          onPress={() =>
+            router.push({ pathname: "/game", params: { level: "1" } })
+          }
           style={[styles.card, styles.primaryCard]}
         >
           <Text style={styles.cardKicker}>Quick Start</Text>

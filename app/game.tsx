@@ -1,9 +1,16 @@
 import GameCanvas from "@/src/components/GameCanvas";
 import { config } from "@/src/constants/config";
-import { loadBestScore, saveBestScore } from "@/src/utils/localScore";
+import { getLevelConfig, TOTAL_LEVELS } from "@/src/constants/levels";
+import {
+  loadUnlockedLevel,
+  loadBestScore,
+  saveBestScore,
+  saveUnlockedLevel,
+} from "@/src/utils/localScore";
 import * as Haptics from "expo-haptics";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 type AudioWindow = typeof globalThis & {
@@ -40,6 +47,8 @@ function playPopSound() {
 }
 
 export default function GameScreen() {
+  const router = useRouter();
+  const params = useLocalSearchParams<{ level?: string | string[] }>();
   const [score, setScore] = useState(0);
   const [bestScore, setBestScore] = useState(0);
   const [missed, setMissed] = useState(0);
@@ -52,10 +61,27 @@ export default function GameScreen() {
 
   const isGameOver = gameStatus !== "playing";
   const canPause = !isGameOver;
+  const levelConfig = useMemo(() => {
+    const levelParam = Array.isArray(params.level)
+      ? params.level[0]
+      : params.level;
+
+    return getLevelConfig(Number(levelParam ?? 1));
+  }, [params.level]);
 
   useEffect(() => {
     setBestScore(loadBestScore());
   }, []);
+
+  useEffect(() => {
+    const unlockedLevel = loadUnlockedLevel();
+    if (levelConfig.level > unlockedLevel) {
+      router.replace({
+        pathname: "/game",
+        params: { level: String(unlockedLevel) },
+      });
+    }
+  }, [levelConfig.level, router]);
 
   const handleScore = useCallback((points: number) => {
     setScore((current) => {
@@ -73,18 +99,19 @@ export default function GameScreen() {
   const handleMiss = useCallback((misses: number) => {
     setMissed((current) => {
       const nextMissed = current + misses;
-      if (nextMissed >= config.MAX_MISSED_BALLOONS) {
+      if (nextMissed >= levelConfig.maxMissed) {
         setGameStatus("lost");
       }
 
       return nextMissed;
     });
-  }, []);
+  }, [levelConfig.maxMissed]);
 
   const handleLevelComplete = useCallback(() => {
+    saveUnlockedLevel(Math.min(levelConfig.level + 1, TOTAL_LEVELS));
     setGameStatus("won");
     setIsPaused(false);
-  }, []);
+  }, [levelConfig.level]);
 
   const handleRestart = useCallback(() => {
     setScore(0);
@@ -101,12 +128,27 @@ export default function GameScreen() {
     }
   }, [canPause]);
 
+  const handleNextLevel = useCallback(() => {
+    const nextLevel = Math.min(levelConfig.level + 1, TOTAL_LEVELS);
+    router.replace({
+      pathname: "/game",
+      params: { level: String(nextLevel) },
+    });
+    setScore(0);
+    setMissed(0);
+    setSpawned(0);
+    setGameStatus("playing");
+    setIsPaused(false);
+    setGameId((current) => current + 1);
+  }, [levelConfig.level, router]);
+
   return (
     <View style={styles.screen}>
       <GameCanvas
-        key={gameId}
+        key={`${levelConfig.level}-${gameId}`}
         isGameOver={isGameOver}
         isPaused={isPaused}
+        levelConfig={levelConfig}
         onLevelComplete={handleLevelComplete}
         onMiss={handleMiss}
         onPop={handlePop}
@@ -118,13 +160,13 @@ export default function GameScreen() {
       </View>
       <View pointerEvents="none" style={styles.missBar}>
         <Text style={styles.scoreText}>
-          Miss: {Math.min(missed, config.MAX_MISSED_BALLOONS)}/
-          {config.MAX_MISSED_BALLOONS}
+          Miss: {Math.min(missed, levelConfig.maxMissed)}/{levelConfig.maxMissed}
         </Text>
       </View>
       <View pointerEvents="none" style={styles.levelBar}>
         <Text style={styles.levelText}>
-          Best: {bestScore} | Level 1: {spawned}/{config.LEVEL_ONE_BALLOONS}
+          Best: {bestScore} | Level {levelConfig.level}: {spawned}/
+          {levelConfig.totalBalloons}
         </Text>
       </View>
       {canPause ? (
@@ -146,8 +188,13 @@ export default function GameScreen() {
             {gameStatus === "lost" ? "Game Over" : "Level Complete"}
           </Text>
           <Text style={styles.gameOverText}>
-            Score {score} | Missed {Math.min(missed, config.MAX_MISSED_BALLOONS)}
+            Score {score} | Missed {Math.min(missed, levelConfig.maxMissed)}
           </Text>
+          {gameStatus === "won" && levelConfig.level < TOTAL_LEVELS ? (
+            <Text onPress={handleNextLevel} style={styles.restartText}>
+              Next Level
+            </Text>
+          ) : null}
           <Text onPress={handleRestart} style={styles.restartText}>
             Play Again
           </Text>
@@ -266,5 +313,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     paddingHorizontal: 20,
     paddingVertical: 12,
+    marginTop: 10,
   },
 });
