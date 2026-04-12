@@ -17,6 +17,7 @@ import Gun from "./Gun";
 
 type GameCanvasProps = {
   isGameOver: boolean;
+  isPaused: boolean;
   onLevelComplete: () => void;
   onMiss: (misses: number) => void;
   onScore: (points: number) => void;
@@ -64,6 +65,7 @@ const createId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random()}`;
 
 export default function GameCanvas({
   isGameOver,
+  isPaused,
   onLevelComplete,
   onMiss,
   onScore,
@@ -124,7 +126,7 @@ export default function GameCanvas({
 
   const shootBullet = useCallback(
     (targetX: number, targetY: number) => {
-      if (isGameOver || width <= 0 || height <= 0) {
+      if (isGameOver || isPaused || width <= 0 || height <= 0) {
         return;
       }
 
@@ -146,12 +148,12 @@ export default function GameCanvas({
         bullets: [...current.bullets, bullet],
       }));
     },
-    [gunX, gunY, height, isGameOver, selectedBulletColor, width],
+    [gunX, gunY, height, isGameOver, isPaused, selectedBulletColor, width],
   );
 
   const updateScene = useCallback(
     (dt: number) => {
-      if (isGameOver || width <= 0 || height <= 0) {
+      if (isGameOver || isPaused || width <= 0 || height <= 0) {
         return;
       }
 
@@ -260,6 +262,7 @@ export default function GameCanvas({
       createBalloon,
       height,
       isGameOver,
+      isPaused,
       onLevelComplete,
       onMiss,
       onScore,

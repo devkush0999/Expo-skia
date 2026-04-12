@@ -2,7 +2,7 @@ import GameCanvas from "@/src/components/GameCanvas";
 import { config } from "@/src/constants/config";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 export default function GameScreen() {
   const [score, setScore] = useState(0);
@@ -11,9 +11,11 @@ export default function GameScreen() {
   const [gameStatus, setGameStatus] = useState<"playing" | "lost" | "won">(
     "playing",
   );
+  const [isPaused, setIsPaused] = useState(false);
   const [gameId, setGameId] = useState(0);
 
   const isGameOver = gameStatus !== "playing";
+  const canPause = !isGameOver;
 
   const handleScore = useCallback((points: number) => {
     setScore((current) => current + points);
@@ -32,6 +34,7 @@ export default function GameScreen() {
 
   const handleLevelComplete = useCallback(() => {
     setGameStatus("won");
+    setIsPaused(false);
   }, []);
 
   const handleRestart = useCallback(() => {
@@ -39,14 +42,22 @@ export default function GameScreen() {
     setMissed(0);
     setSpawned(0);
     setGameStatus("playing");
+    setIsPaused(false);
     setGameId((current) => current + 1);
   }, []);
+
+  const togglePause = useCallback(() => {
+    if (canPause) {
+      setIsPaused((current) => !current);
+    }
+  }, [canPause]);
 
   return (
     <View style={styles.screen}>
       <GameCanvas
         key={gameId}
         isGameOver={isGameOver}
+        isPaused={isPaused}
         onLevelComplete={handleLevelComplete}
         onMiss={handleMiss}
         onScore={handleScore}
@@ -66,6 +77,19 @@ export default function GameScreen() {
           Level 1: {spawned}/{config.LEVEL_ONE_BALLOONS}
         </Text>
       </View>
+      {canPause ? (
+        <Pressable onPress={togglePause} style={styles.pauseButton}>
+          <Text style={styles.pauseButtonText}>
+            {isPaused ? "Resume" : "Pause"}
+          </Text>
+        </Pressable>
+      ) : null}
+      {isPaused && !isGameOver ? (
+        <View pointerEvents="none" style={styles.pauseOverlay}>
+          <Text style={styles.pauseTitle}>Paused</Text>
+          <Text style={styles.pauseText}>Tap Resume to continue</Text>
+        </View>
+      ) : null}
       {isGameOver ? (
         <View style={styles.gameOverOverlay}>
           <Text style={styles.gameOverTitle}>
@@ -116,6 +140,43 @@ const styles = StyleSheet.create({
   levelText: {
     color: "#082D54",
     fontSize: 16,
+    fontWeight: "700",
+  },
+  pauseButton: {
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 8,
+    left: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    position: "absolute",
+    top: 112,
+  },
+  pauseButtonText: {
+    color: "#082D54",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  pauseOverlay: {
+    alignItems: "center",
+    backgroundColor: "rgba(8,45,84,0.48)",
+    bottom: 0,
+    justifyContent: "center",
+    left: 0,
+    pointerEvents: "none",
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
+  pauseTitle: {
+    color: "#FFFFFF",
+    fontSize: 36,
+    fontWeight: "800",
+    marginBottom: 8,
+  },
+  pauseText: {
+    color: "#FFFFFF",
+    fontSize: 18,
     fontWeight: "700",
   },
   scoreText: {
