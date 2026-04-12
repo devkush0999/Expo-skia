@@ -4,14 +4,23 @@ import { useGameLoop } from "@/src/engine/useGameLoop";
 import { Canvas, Rect } from "@shopify/react-native-skia";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  LayoutChangeEvent,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
 import { runOnJS } from "react-native-reanimated";
 import Balloon from "./Balloon";
 import Bullet from "./Bullet";
 import Gun from "./Gun";
 
 type GameCanvasProps = {
+  isGameOver: boolean;
+  onLevelComplete: () => void;
+  onMiss: (misses: number) => void;
   onScore: (points: number) => void;
+  onSpawnedChange: (spawned: number) => void;
 };
 
 type BalloonModel = {
@@ -53,18 +62,34 @@ const chooseColor = () =>
 
 const createId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random()}`;
 
-export default function GameCanvas({ onScore }: GameCanvasProps) {
+export default function GameCanvas({
+  isGameOver,
+  onLevelComplete,
+  onMiss,
+  onScore,
+  onSpawnedChange,
+}: GameCanvasProps) {
   const [size, setSize] = useState<CanvasSize>({ width: 0, height: 0 });
   const [scene, setScene] = useState<SceneState>({ balloons: [], bullets: [] });
   const [gunAngle, setGunAngle] = useState(-Math.PI / 2);
-  const [selectedBulletColor, setSelectedBulletColor] = useState(
-    config.BULLET_COLORS[0],
-  );
+  const [selectedBulletIndex, setSelectedBulletIndex] = useState(0);
   const spawnTimer = useRef(0);
+  const spawnedCount = useRef(0);
+  const levelComplete = useRef(false);
 
   const { width, height } = size;
   const gunX = width / 2;
   const gunY = height - config.GUN_BASE_OFFSET;
+  const selectedBulletColor = config.BULLET_COLORS[selectedBulletIndex];
+  const leftBulletColor =
+    config.BULLET_COLORS[
+      (selectedBulletIndex - 1 + config.BULLET_COLORS.length) %
+        config.BULLET_COLORS.length
+    ];
+  const rightBulletColor =
+    config.BULLET_COLORS[
+      (selectedBulletIndex + 1) % config.BULLET_COLORS.length
+    ];
 
   const createBalloon = useCallback((): BalloonModel | null => {
     if (width <= 0 || height <= 0) {
@@ -99,7 +124,7 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
 
   const shootBullet = useCallback(
     (targetX: number, targetY: number) => {
-      if (width <= 0 || height <= 0) {
+      if (isGameOver || width <= 0 || height <= 0) {
         return;
       }
 
@@ -121,28 +146,34 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
         bullets: [...current.bullets, bullet],
       }));
     },
-    [gunX, gunY, height, selectedBulletColor, width],
+    [gunX, gunY, height, isGameOver, selectedBulletColor, width],
   );
 
   const updateScene = useCallback(
     (dt: number) => {
-      if (width <= 0 || height <= 0) {
+      if (isGameOver || width <= 0 || height <= 0) {
         return;
       }
 
       spawnTimer.current += dt;
-      const shouldSpawn = spawnTimer.current >= config.BALLOON_SPAWN_INTERVAL;
+      const canSpawn = spawnedCount.current < config.LEVEL_ONE_BALLOONS;
+      const shouldSpawn =
+        canSpawn && spawnTimer.current >= config.BALLOON_SPAWN_INTERVAL;
       if (shouldSpawn) {
         spawnTimer.current -= config.BALLOON_SPAWN_INTERVAL;
       }
 
       setScene((current) => {
-        const movedBalloons = current.balloons
-          .map((balloon) => ({
-            ...balloon,
-            y: balloon.y + balloon.speed * dt,
-          }))
-          .filter((balloon) => balloon.y - balloon.radius < height);
+        const movedBalloons = current.balloons.map((balloon) => ({
+          ...balloon,
+          y: balloon.y + balloon.speed * dt,
+        }));
+        const missedCount = movedBalloons.filter(
+          (balloon) => balloon.y - balloon.radius >= height,
+        ).length;
+        const activeBalloons = movedBalloons.filter(
+          (balloon) => balloon.y - balloon.radius < height,
+        );
 
         const movedBullets = current.bullets
           .map((bullet) => ({
@@ -161,7 +192,7 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
         const poppedBalloonIds = new Set<string>();
         const spentBulletIds = new Set<string>();
 
-        for (const balloon of movedBalloons) {
+        for (const balloon of activeBalloons) {
           for (const bullet of movedBullets) {
             if (
               poppedBalloonIds.has(balloon.id) ||
@@ -187,12 +218,16 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
           }
         }
 
+        if (missedCount > 0) {
+          onMiss(missedCount);
+        }
+
         if (poppedBalloonIds.size > 0) {
           onScore(poppedBalloonIds.size);
         }
 
         const nextScene: SceneState = {
-          balloons: movedBalloons.filter(
+          balloons: activeBalloons.filter(
             (balloon) => !poppedBalloonIds.has(balloon.id),
           ),
           bullets: movedBullets.filter(
@@ -204,13 +239,33 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
           const balloon = createBalloon();
           if (balloon) {
             nextScene.balloons = [...nextScene.balloons, balloon];
+            spawnedCount.current += 1;
+            onSpawnedChange(spawnedCount.current);
           }
+        }
+
+        if (
+          spawnedCount.current >= config.LEVEL_ONE_BALLOONS &&
+          nextScene.balloons.length === 0 &&
+          !levelComplete.current
+        ) {
+          levelComplete.current = true;
+          onLevelComplete();
         }
 
         return nextScene;
       });
     },
-    [createBalloon, height, onScore, width],
+    [
+      createBalloon,
+      height,
+      isGameOver,
+      onLevelComplete,
+      onMiss,
+      onScore,
+      onSpawnedChange,
+      width,
+    ],
   );
 
   useGameLoop(updateScene);
@@ -222,6 +277,20 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
       }),
     [shootBullet],
   );
+
+  const choosePreviousColor = useCallback(() => {
+    setSelectedBulletIndex(
+      (current) =>
+        (current - 1 + config.BULLET_COLORS.length) %
+        config.BULLET_COLORS.length,
+    );
+  }, []);
+
+  const chooseNextColor = useCallback(() => {
+    setSelectedBulletIndex(
+      (current) => (current + 1) % config.BULLET_COLORS.length,
+    );
+  }, []);
 
   return (
     <View style={styles.container} onLayout={handleLayout}>
@@ -254,28 +323,25 @@ export default function GameCanvas({ onScore }: GameCanvasProps) {
               />
             ))}
             {width > 0 && height > 0 ? (
-              <Gun x={gunX} y={gunY} angle={gunAngle} />
+              <Gun
+                bulletColor={selectedBulletColor}
+                x={gunX}
+                y={gunY}
+                angle={gunAngle}
+              />
             ) : null}
           </Canvas>
         </View>
       </GestureDetector>
       <View style={styles.colorPicker}>
-        <Text style={styles.colorPickerLabel}>Bullet</Text>
-        {config.BULLET_COLORS.map((color) => {
-          const isSelected = color === selectedBulletColor;
-
-          return (
-            <Pressable
-              key={color}
-              onPress={() => setSelectedBulletColor(color)}
-              style={[
-                styles.colorButton,
-                { backgroundColor: color },
-                isSelected ? styles.selectedColorButton : null,
-              ]}
-            />
-          );
-        })}
+        <Pressable
+          onPress={choosePreviousColor}
+          style={[styles.colorButton, { backgroundColor: leftBulletColor }]}
+        />
+        <Pressable
+          onPress={chooseNextColor}
+          style={[styles.colorButton, { backgroundColor: rightBulletColor }]}
+        />
       </View>
     </View>
   );
@@ -293,30 +359,21 @@ const styles = StyleSheet.create({
   },
   colorPicker: {
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.4)",
-    borderRadius: 8,
-    bottom: 96,
+    bottom: 22,
     flexDirection: "row",
-    gap: 10,
-    left: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    justifyContent: "space-between",
+    left: "50%",
     position: "absolute",
-  },
-  colorPickerLabel: {
-    color: "#082D54",
-    fontSize: 16,
-    fontWeight: "700",
+    transform: [{ translateX: -120 }],
+    width: 240,
   },
   colorButton: {
+    alignItems: "center",
     borderColor: "rgba(8,45,84,0.35)",
     borderRadius: 8,
     borderWidth: 2,
-    height: 34,
-    width: 34,
-  },
-  selectedColorButton: {
-    borderColor: "#082D54",
-    borderWidth: 4,
+    height: 42,
+    justifyContent: "center",
+    width: 42,
   },
 });

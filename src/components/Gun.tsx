@@ -1,13 +1,14 @@
 import { config } from "@/src/constants/config";
-import { Group, Rect } from "@shopify/react-native-skia";
+import { Circle, Group, Rect } from "@shopify/react-native-skia";
 
 type GunProps = {
+  bulletColor: string;
   x: number;
   y: number;
   angle: number;
 };
 
-export default function Gun({ x, y, angle }: GunProps) {
+export default function Gun({ bulletColor, x, y, angle }: GunProps) {
   const bodyWidth = config.GUN_WIDTH;
   const bodyHeight = config.GUN_HEIGHT * 0.72;
   const barrelWidth = 10;
@@ -34,6 +35,12 @@ export default function Gun({ x, y, angle }: GunProps) {
         width={bodyWidth}
         height={bodyHeight}
         color="#2D2D2D"
+      />
+      <Circle
+        cx={x}
+        cy={bodyTop + bodyHeight * 0.55}
+        r={8}
+        color={bulletColor}
       />
       <Rect
         x={barrelLeft}
