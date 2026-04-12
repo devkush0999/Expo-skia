@@ -1,13 +1,21 @@
 import { config } from "@/src/constants/config";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { StyleSheet, Text, Pressable, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 export default function HomeScreen() {
   const router = useRouter();
 
   return (
     <View style={styles.screen}>
+      <Pressable
+        accessibilityLabel="Open settings"
+        onPress={() => router.push("/settings")}
+        style={styles.settingsButton}
+      >
+        <Text style={styles.settingsIcon}>⚙</Text>
+      </Pressable>
+
       <View style={styles.header}>
         <Text style={styles.title}>Balloon Shooter</Text>
         <Text style={styles.subtitle}>Choose your next round</Text>
@@ -44,6 +52,24 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: 30,
+  },
+  settingsButton: {
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderColor: "rgba(8,45,84,0.16)",
+    borderRadius: 8,
+    borderWidth: 2,
+    height: 48,
+    justifyContent: "center",
+    position: "absolute",
+    right: 20,
+    top: 54,
+    width: 48,
+  },
+  settingsIcon: {
+    color: "#082D54",
+    fontSize: 26,
+    fontWeight: "900",
   },
   title: {
     color: "#082D54",
